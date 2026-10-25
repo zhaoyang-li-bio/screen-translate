@@ -1,0 +1,100 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows 构建
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装 PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: 打包
+        run: >
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name ScreenTranslate
+          windows/screen_translate.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScreenTranslate-windows-x64
+          path: dist/ScreenTranslate.exe
+          if-no-files-found: error
+
+  linux:
+    name: Linux 构建
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk tk xclip wl-clipboard libx11-6
+
+      - name: 安装 PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: 打包
+        run: >
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name ScreenTranslate
+          linux/screen_translate_linux.py
+
+      - name: 打包 .desktop 启动器
+        run: |
+          mkdir -p dist/linux-extras
+          cp linux/screen-translate.desktop dist/linux-extras/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScreenTranslate-linux-x64
+          path: |
+            dist/ScreenTranslate
+            dist/linux-extras/screen-translate.desktop
+          if-no-files-found: error
+
+  release:
+    name: 发布 Release 附件
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 重命名产物
+        run: |
+          mkdir -p release
+          cp artifacts/ScreenTranslate-windows-x64/ScreenTranslate.exe \
+             release/ScreenTranslate-windows-x64.exe
+          cp artifacts/ScreenTranslate-linux-x64/ScreenTranslate \
+             release/ScreenTranslate-linux-x64
+          cp artifacts/ScreenTranslate-linux-x64/screen-translate.desktop \
+             release/screen-translate.desktop
+          chmod +x release/ScreenTranslate-linux-x64
+          ls -l release
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
